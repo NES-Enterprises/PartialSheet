@@ -19,6 +19,8 @@ struct PartialSheet: ViewModifier {
     
     // MARK: - Private Properties
 
+    private let veritcalContentPadding: CGFloat = 24
+
     @EnvironmentObject private var manager: PartialSheetManager
 
     /// The rect containing the presenter
@@ -28,31 +30,31 @@ struct PartialSheet: ViewModifier {
     @State private var sheetContentRect: CGRect = .zero
     
     /// The offset for keyboard height
-    @State private var keyboardOffset: CGFloat = 0
+    @State private var offset: CGFloat = 0
     
     /// The offset for the drag gesture
     @State private var dragOffset: CGFloat = 0
-
+    
     /// The point for the top anchor
     private var topAnchor: CGFloat {
-        let bottomSafeArea = (UIApplication.shared.windows.first?.safeAreaInsets.bottom ?? 0)
-        
-        let calculatedTop =
-            presenterContentRect.height +
-            bottomSafeArea -
-            sheetContentRect.height -
-            handlerSectionHeight
-          
-        guard calculatedTop < style.minTopDistance else {
-            return calculatedTop
-        }
-        
-        return style.minTopDistance
+        let screenSize = UIScreen.main.bounds.size.height
+        let bottomSafeAreaInset = UIApplication.shared.windows.first?.safeAreaInsets.bottom ?? 0
+        let topVerticalPadding = veritcalContentPadding
+        let bottomVerticalPadding = bottomSafeAreaInset > 0 ? 0 : veritcalContentPadding
+        let sheetSize = topVerticalPadding + sheetContentRect.height + bottomVerticalPadding
+        return max(screenSize - sheetSize - bottomSafeAreaInset, style.minTopDistance)
     }
     
     /// The he point for the bottom anchor
     private var bottomAnchor: CGFloat {
         return UIScreen.main.bounds.height + 5
+    }
+    
+    /// The current anchor point, based if the **presented** property is true or false
+    private var currentAnchorPoint: CGFloat {
+        return manager.isPresented ?
+            topAnchor :
+        bottomAnchor
     }
     
     /// The height of the handler bar section
@@ -63,10 +65,8 @@ struct PartialSheet: ViewModifier {
     /// Calculates the sheets y position
     private var sheetPosition: CGFloat {
         if self.manager.isPresented {
-            // 20.0 = To make sure we dont go under statusbar on screens without safe area inset
-            let topInset = UIApplication.shared.windows.first?.safeAreaInsets.top ?? 20.0
-            let position = self.topAnchor + self.dragOffset - self.keyboardOffset
-            
+            let topInset = UIApplication.shared.windows.first?.safeAreaInsets.top ?? 20.0 // 20.0 = To make sure we dont go under statusbar on screens without safe area inset
+            let position = self.topAnchor + self.dragOffset - self.offset
             if position < topInset {
                 return topInset
             }
@@ -192,7 +192,7 @@ extension PartialSheet {
                 }
                 .edgesIgnoringSafeArea(.vertical)
                 .onTapGesture {
-                    withAnimation(.interpolatingSpring(stiffness: 300.0, damping: 30.0, initialVelocity: 10.0)) {
+                    withAnimation {
                         self.manager.isPresented = false
                         self.dismissKeyboard()
                         self.manager.onDismiss?()
@@ -202,15 +202,15 @@ extension PartialSheet {
             // The SHEET VIEW
             Group {
                 VStack(spacing: 0) {
-                    // This is the little rounded bar (HANDLER) on top of the sheet
-                    VStack {
-                        Spacer()
-                        RoundedRectangle(cornerRadius: CGFloat(5.0) / 2.0)
-                            .frame(width: 40, height: 5)
-                            .foregroundColor(self.style.handlerBarColor)
-                        Spacer()
-                    }
-                    .frame(height: handlerSectionHeight)
+//                    // This is the little rounded bar (HANDLER) on top of the sheet
+//                    VStack {
+//                        Spacer()
+//                        RoundedRectangle(cornerRadius: CGFloat(5.0) / 2.0)
+//                            .frame(width: 40, height: 5)
+//                            .foregroundColor(self.style.handlerBarColor)
+//                        Spacer()
+//                    }
+//                    .frame(height: handlerSectionHeight)
                     VStack {
                         // Attach the SHEET CONTENT
                         self.manager.content
@@ -220,12 +220,11 @@ extension PartialSheet {
                                 }
                         )
                     }
+                    .padding(.vertical, veritcalContentPadding)
                     Spacer()
                 }
                 .onPreferenceChange(SheetPreferenceKey.self, perform: { (prefData) in
-                    withAnimation(.interpolatingSpring(stiffness: 300.0, damping: 30.0, initialVelocity: 10.0)) {
-                        self.sheetContentRect = prefData.first?.bounds ?? .zero
-                    }
+                    self.sheetContentRect = prefData.first?.bounds ?? .zero
                 })
                 .frame(width: UIScreen.main.bounds.width)
                 .background(self.background)
@@ -243,7 +242,7 @@ extension PartialSheet {
 
     /// Create a new **DragGesture** with *updating* and *onEndend* func
     private func dragGesture() -> _EndedGesture<_ChangedGesture<DragGesture>> {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+        DragGesture(minimumDistance: 30, coordinateSpace: .local)
             .onChanged(onDragChanged)
             .onEnded(onDragEnded)
     }
@@ -281,7 +280,7 @@ extension PartialSheet {
                 }
             }
         } else if verticalDirection < 0 {
-            withAnimation(.interpolatingSpring(stiffness: 300.0, damping: 30.0, initialVelocity: 10.0)) {
+            withAnimation {
                 dragOffset = 0
                 self.manager.isPresented = true
             }
@@ -298,7 +297,7 @@ extension PartialSheet {
                 closestPosition = bottomAnchor
             }
             
-            withAnimation(.interpolatingSpring(stiffness: 300.0, damping: 30.0, initialVelocity: 10.0)) {
+            withAnimation {
                 dragOffset = 0
                 self.manager.isPresented = (closestPosition == topAnchor)
                 if !manager.isPresented {
@@ -319,7 +318,7 @@ extension PartialSheet {
             let height = rect.height
             let bottomInset = UIApplication.shared.windows.first?.safeAreaInsets.bottom
             withAnimation(.interpolatingSpring(stiffness: 300.0, damping: 30.0, initialVelocity: 10.0)) {
-                self.keyboardOffset = height - (bottomInset ?? 0)
+                self.offset = height - (bottomInset ?? 0)
             }
         }
     }
@@ -328,7 +327,7 @@ extension PartialSheet {
     private func keyboardHide(notification: Notification) {
         DispatchQueue.main.async {
             withAnimation(.interpolatingSpring(stiffness: 300.0, damping: 30.0, initialVelocity: 10.0)) {
-                self.keyboardOffset = 0
+                self.offset = 0
             }
         }
     }
